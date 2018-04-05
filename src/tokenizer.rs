@@ -1,6 +1,3 @@
-use std::str::Chars;
-use std::str::FromStr;
-
 #[derive(Debug, Clone)]
 pub enum Tree {
     Branch { nodes: Vec<Tree> },
@@ -159,7 +156,7 @@ pub fn tokenize(source: &str) -> Vec<Token> {
                 'atom_loop: loop {
                     match source.chars().nth(atom_position) {
                         Some(char) => match char {
-                            ')' | '(' | ' ' => {
+                            ')' | '(' | ' ' | '\n' => {
                                 position = atom_position - 1;
                                 break 'atom_loop;
                             }

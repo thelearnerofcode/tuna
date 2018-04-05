@@ -14,9 +14,16 @@ use std::sync::Arc;
 //          ((name result) TYPE)
 
 fn main() {
-    let source = r#"((def_function factorial ((n f32) f32) (* n (call factorial ((- n 1f32))))))"#;
+    let source = r#"((def_function factorial ((n f32) f32) 
+    (if (== n 0f32) 
+        1f32
+        (* n (call factorial ((- n 1f32))))))
+        
+(def_function main (f32) (call factorial (120f32))))"#;
 
     let tree = Tree::from_tokens(&::tokenizer::tokenize(source));
+    println!("{:#?}", tree);
+    
     let mut scope = Scope::new();
     for block in tree.get_branches().unwrap() {
         let conversion_context = ConversionContext {
@@ -29,13 +36,13 @@ fn main() {
         };
 
         let statement = Statement::from_tree(&conversion_context, block).unwrap();
-        // statement.get_type(&conversion_context).unwrap();
+        statement.get_type(&conversion_context).unwrap();
         statement.execute(&mut scope);
     }
 
     let function_result = scope.run_function(
-        "factorial",
-        vec![Arc::new(RuntimeValue::BasicValue(BasicValue::F32(2.0)))],
+        "main",
+        vec![],
     );
     println!("function result: {:?}", function_result);
 }
@@ -122,6 +129,7 @@ pub enum BasicType {
     I64,
 
     Void,
+    Bool,
     String,
 }
 
@@ -143,6 +151,7 @@ impl BasicType {
 
                 "string" => Ok(BasicType::String),
                 "void" => Ok(BasicType::Void),
+                "bool" => Ok(BasicType::Bool),
 
                 _ => Err(TreeConvertError::NoSuchType(tree.clone())),
             },
@@ -178,6 +187,10 @@ pub enum ConstantValue {
     I16(i16),
     I32(i32),
     I64(i64),
+
+    Void,
+    String(String),
+    Bool(bool),
 }
 
 #[derive(Debug)]
@@ -211,6 +224,16 @@ pub enum Expression {
     GetFunction(String),
     // result type is the value of the variable
     GetVariable(String),
+
+    // result type is a bool
+    Compare(Box<Expression>, ComparisonOperator, Box<Expression>),
+    
+    // main body and else body must return the same type
+    If {
+        condition: Box<Expression>,
+        main_body: Box<Expression>,
+        else_body: Box<Expression>,
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -269,7 +292,7 @@ impl Expression {
                             }
                         }
 
-                        Ok(closure_expr_type)
+                        Ok(Type::clone(&closure_type.result))
                     }
                     _ => Err(TypeCheckError::ExpectedClosure),
                 }
@@ -299,6 +322,10 @@ impl Expression {
                     ConstantValue::I16(_) => BasicType::I16,
                     ConstantValue::I32(_) => BasicType::I32,
                     ConstantValue::I64(_) => BasicType::I64,
+
+                    ConstantValue::Void => BasicType::Void,
+                    ConstantValue::String(_) => BasicType::String,
+                    ConstantValue::Bool(_) => BasicType::Bool,
                 }))
             }
             Expression::CreateStruct(ref struct_type, ref member_expressions) => {
@@ -333,6 +360,37 @@ impl Expression {
                 Some(ref ty) => Ok(Type::Closure(ClosureType::clone(ty))),
                 None => Err(TypeCheckError::NoSuchFunction(name.clone())),
             },
+            Expression::Compare(ref lhs, ref op, ref rhs) => {
+                let lhs_type = lhs.get_type(conversion_context)?;
+                let rhs_type = rhs.get_type(conversion_context)?;
+
+                match lhs_type.clone() {
+                    Type::Basic(ref _ty) => {
+                        if lhs_type != rhs_type {
+                            Err(TypeCheckError::WrongType {
+                                expected: lhs_type,
+                                got: rhs_type,
+                            })
+                        } else {
+                            Ok(Type::Basic(BasicType::Bool))
+                        }
+                    }
+                    _ => Err(TypeCheckError::ExpectedBasicType),
+                }
+            }
+            Expression::If { ref condition, ref main_body, ref else_body } => {
+                let main_type = main_body.get_type(conversion_context)?;
+                let else_type = else_body.get_type(conversion_context)?;
+
+                if main_type != else_type {
+                    Err(TypeCheckError::WrongType {
+                        expected: main_type,
+                        got: else_type
+                    })
+                } else {
+                    Ok(main_type)
+                }
+            }
         }
     }
 
@@ -381,6 +439,14 @@ impl Expression {
                 if string.ends_with("i64") {
                     let number = i64::from_str(&string.replace("i64", "")).unwrap();
                     return Ok(Expression::CreateConstantValue(ConstantValue::I64(number)));
+                }
+
+                if string == "true" {
+                    return Ok(Expression::CreateConstantValue(ConstantValue::Bool(true)));
+                }
+
+                if string == "false" {
+                    return Ok(Expression::CreateConstantValue(ConstantValue::Bool(false)));
                 }
 
                 if conversion_context.variables.contains_key(string) {
@@ -448,6 +514,79 @@ impl Expression {
                         arguments.push(expr);
                     }
                     return Ok(Expression::CallClosure(Box::new(closure), arguments));
+                }
+                "if" => {
+                    let condition = Box::new(Expression::from_tree(conversion_context, &nodes[1])?);
+                    let main_body = Box::new(Expression::from_tree(conversion_context, &nodes[2])?);
+                    let else_body = Box::new(Expression::from_tree(conversion_context, &nodes[3])?);
+
+                    return Ok(Expression::If { condition, main_body, else_body })
+                }
+                "==" => {
+                    let op = ComparisonOperator::EqualTo;
+                    let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::Compare(
+                        Box::new(lhs),
+                        op,
+                        Box::new(rhs),
+                    ));
+                }
+                "<" => {
+                    let op = ComparisonOperator::LessThan;
+                    let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::Compare(
+                        Box::new(lhs),
+                        op,
+                        Box::new(rhs),
+                    ));
+                }
+                "<=" => {
+                    let op = ComparisonOperator::LessThanEqualTo;
+                    let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::Compare(
+                        Box::new(lhs),
+                        op,
+                        Box::new(rhs),
+                    ));
+                }
+                ">" => {
+                    let op = ComparisonOperator::GreaterThan;
+                    let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::Compare(
+                        Box::new(lhs),
+                        op,
+                        Box::new(rhs),
+                    ));
+                }
+                ">=" => {
+                    let op = ComparisonOperator::GreaterThanEqualTo;
+                    let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::Compare(
+                        Box::new(lhs),
+                        op,
+                        Box::new(rhs),
+                    ));
+                }
+                "!=" => {
+                    let op = ComparisonOperator::NotEqualTo;
+                    let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::Compare(
+                        Box::new(lhs),
+                        op,
+                        Box::new(rhs),
+                    ));
                 }
                 _ => unimplemented!(),
             },
@@ -572,6 +711,10 @@ impl Expression {
                     ConstantValue::I16(ref c) => BasicValue::I16(*c),
                     ConstantValue::I32(ref c) => BasicValue::I32(*c),
                     ConstantValue::I64(ref c) => BasicValue::I64(*c),
+
+                    ConstantValue::Void => BasicValue::Void,
+                    ConstantValue::String(ref string) => BasicValue::String(string.clone()),
+                    ConstantValue::Bool(ref bool) => BasicValue::Bool(*bool)
                 }))
             }
             Expression::CreateStruct(ref _ty, ref member_expressions) => {
@@ -598,6 +741,47 @@ impl Expression {
                 closure_value.execute(state.scope, arguments)
             }
             Expression::GetMember(ref struct_expr, ref member_name) => unimplemented!(),
+            Expression::Compare(ref lhs, ref op, ref rhs) => {
+                let lhs_value = lhs.execute(state);
+                let lhs_value = lhs_value.as_basic_value().unwrap();
+                let rhs_value = rhs.execute(state);
+                let rhs_value = rhs_value.as_basic_value().unwrap();
+
+                Arc::new(RuntimeValue::BasicValue(BasicValue::Bool(match *op {
+                    ComparisonOperator::EqualTo => {
+                        lhs_value == rhs_value
+                    }
+                    ComparisonOperator::LessThan => {
+                        lhs_value < rhs_value
+                    }
+                    ComparisonOperator::LessThanEqualTo => {
+                        lhs_value <= rhs_value
+                    }
+                    ComparisonOperator::GreaterThan => {
+                        lhs_value > rhs_value
+                    }
+                    ComparisonOperator::GreaterThanEqualTo => {
+                        lhs_value >= rhs_value
+                    }
+                    ComparisonOperator::NotEqualTo => {
+                        lhs_value != rhs_value
+                    }
+                })))
+            }
+            Expression::If { ref condition, ref main_body, ref else_body } => {
+                let condition_value = condition.execute(state);
+                let condition_value = condition_value.as_basic_value().unwrap();
+                let condition_value = match *condition_value {
+                    BasicValue::Bool(ref b) => *b,
+                    _ => panic!()
+                };
+
+                if condition_value {
+                    main_body.execute(state)
+                } else {
+                    else_body.execute(state)
+                }
+            }
         }
     }
 }
@@ -641,7 +825,7 @@ impl Statement {
         match *self {
             Statement::DefineStruct { name: _, ty: _ } => Ok(()),
             Statement::DefineFunction {
-                name: _,
+                ref name,
                 ref ty,
                 ref body,
             } => {
@@ -649,6 +833,7 @@ impl Statement {
 
                 let mut real_conversion_context = conversion_context.clone();
                 real_conversion_context.variables = ty.arguments.iter().cloned().collect();
+                real_conversion_context.functions.insert(name.clone(), ty.clone());
 
                 let body_ty = body.get_type(&mut real_conversion_context)?;
 
@@ -720,6 +905,16 @@ impl Statement {
 }
 
 #[derive(Debug, Clone)]
+pub enum ComparisonOperator {
+    EqualTo,
+    LessThan,
+    LessThanEqualTo,
+    GreaterThan,
+    GreaterThanEqualTo,
+    NotEqualTo,
+}
+
+#[derive(Debug, Clone)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -727,7 +922,7 @@ pub enum BinaryOperator {
     Divide,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub enum BasicValue {
     U16(u16),
     U32(u32),
@@ -741,7 +936,7 @@ pub enum BasicValue {
     I64(i64),
 
     String(String),
-
+    Bool(bool),
     Void,
 }
 
