@@ -1,0 +1,10 @@
+[package]
+name = "tuna"
+version = "0.1.0"
+authors = ["chell"]
+
+[dependencies]
+
+[[bin]]
+name = "tuna"
+path = "src/bin.rs"
