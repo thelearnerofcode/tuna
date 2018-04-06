@@ -30,7 +30,7 @@ impl Tree {
                     string.push(' ');
                 }
 
-                if nodes.len() != 0 {
+                if !nodes.is_empty() {
                     string.pop();
                 }
 
@@ -83,7 +83,7 @@ impl Tree {
         let mut nodes = Vec::new();
         let mut position = 0;
 
-        while let Some(token) = tokens.iter().nth(position) {
+        while let Some(token) = tokens.get(position) {
             match *token {
                 Token::RightParenthesis => {
                     let mut parenthesis_depth = 1;
@@ -91,7 +91,7 @@ impl Tree {
                     let mut end_position = position + 1;
 
                     'parenthesis_loop: loop {
-                        match tokens.iter().nth(end_position) {
+                        match tokens.get(end_position) {
                             Some(token) => match *token {
                                 Token::RightParenthesis => {
                                     parenthesis_depth += 1;
@@ -179,7 +179,7 @@ pub fn tokenize(source: &str) -> Vec<Token> {
                 tokens.push(Token::String(string))
             }
             ' ' | '\n' => {}
-            c => {
+            _ => {
                 let mut atom = String::new();
                 let mut atom_position = position;
 

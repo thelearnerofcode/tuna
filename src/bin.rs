@@ -41,9 +41,9 @@ fn main() {
         statement.execute(&mut scope);
     }
 
-    let person = scope.run_function("create_person", vec![]);
+    let person = scope.run_function("create_person", &[]);
     println!("person: {:?}", person);
-    let old_person = scope.run_function("age_person", vec![person]);
+    let old_person = scope.run_function("age_person", &[person]);
     println!("old_person: {:?}", old_person);
 }
 
@@ -111,7 +111,7 @@ pub enum BasicType {
 impl BasicType {
     pub fn from_tree(tree: &Tree) -> Result<BasicType, TreeConvertError> {
         match *tree {
-            Tree::Branch { ref nodes } => Err(TreeConvertError::ExpectedAtom),
+            Tree::Branch { .. } => Err(TreeConvertError::ExpectedAtom),
             Tree::Atom(ref string) => match string.as_ref() {
                 "u16" => Ok(BasicType::U16),
                 "u32" => Ok(BasicType::U32),
@@ -148,7 +148,7 @@ impl Type {
         tree: &Tree,
     ) -> Result<Type, TreeConvertError> {
         match *tree {
-            Tree::Branch { nodes: _ } => Err(TreeConvertError::ExpectedAtom),
+            Tree::Branch { .. } => Err(TreeConvertError::ExpectedAtom),
             Tree::Atom(ref string) => {
                 if let Some(convert_context) = convert_context {
                     if let Some(struct_type) = convert_context.structs.get(string) {
@@ -292,8 +292,8 @@ impl Expression {
                         let member_type = struct_type
                             .fields
                             .get(member_name)
-                            .ok_or(TypeCheckError::NoSuchMember(member_name.clone()))?;
-                        return Ok(member_type.clone());
+                            .ok_or_else(|| TypeCheckError::NoSuchMember(member_name.clone()))?;
+                        Ok(member_type.clone())
                     }
                     _ => Err(TypeCheckError::ExpectedStruct),
                 }
@@ -320,7 +320,7 @@ impl Expression {
                 for (member_name, member_type) in &struct_type.fields {
                     let member_expression = member_expressions
                         .get(member_name)
-                        .ok_or(TypeCheckError::MissingMember(member_name.clone()))?;
+                        .ok_or_else(|| TypeCheckError::MissingMember(member_name.clone()))?;
 
                     let member_expr_type = member_expression.get_type(conversion_context)?;
                     if *member_type != member_expr_type {
@@ -331,24 +331,24 @@ impl Expression {
                     }
                 }
 
-                for (member_name, _member_type) in member_expressions {
+                for member_name in member_expressions.keys() {
                     struct_type
                         .fields
                         .get(member_name)
-                        .ok_or(TypeCheckError::NoSuchMember(member_name.clone()))?;
+                        .ok_or_else(|| TypeCheckError::NoSuchMember(member_name.clone()))?;
                 }
 
                 Ok(Type::Struct(struct_type.clone()))
             }
             Expression::GetVariable(ref name) => match conversion_context.variables.get(name) {
-                Some(ref ty) => Ok(Type::clone(ty)),
+                Some(ty) => Ok(Type::clone(ty)),
                 None => Err(TypeCheckError::NoSuchVariable(name.clone())),
             },
             Expression::GetFunction(ref name) => match conversion_context.functions.get(name) {
-                Some(ref ty) => Ok(Type::Closure(ClosureType::clone(ty))),
+                Some(ty) => Ok(Type::Closure(ClosureType::clone(ty))),
                 None => Err(TypeCheckError::NoSuchFunction(name.clone())),
             },
-            Expression::Compare(ref lhs, ref op, ref rhs) => {
+            Expression::Compare(ref lhs, ref _op, ref rhs) => {
                 let lhs_type = lhs.get_type(conversion_context)?;
                 let rhs_type = rhs.get_type(conversion_context)?;
 
@@ -371,6 +371,17 @@ impl Expression {
                 ref main_body,
                 ref else_body,
             } => {
+                let condition_type = condition.get_type(conversion_context)?;
+                match condition_type {
+                    Type::Basic(BasicType::Bool) => {}
+                    ty => {
+                        return Err(TypeCheckError::WrongType {
+                            expected: Type::Basic(BasicType::Bool),
+                            got: ty
+                        });
+                    }
+                }
+
                 let main_type = main_body.get_type(conversion_context)?;
                 let else_type = else_body.get_type(conversion_context)?;
 
@@ -457,44 +468,44 @@ impl Expression {
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::BinaryExpression(
+                    Ok(Expression::BinaryExpression(
                         Box::new(lhs),
                         op,
                         Box::new(rhs),
-                    ));
+                    ))
                 }
                 "-" => {
                     let op = BinaryOperator::Subtract;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::BinaryExpression(
+                    Ok(Expression::BinaryExpression(
                         Box::new(lhs),
                         op,
                         Box::new(rhs),
-                    ));
+                    ))
                 }
                 "/" => {
                     let op = BinaryOperator::Divide;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::BinaryExpression(
+                    Ok(Expression::BinaryExpression(
                         Box::new(lhs),
                         op,
                         Box::new(rhs),
-                    ));
+                    ))
                 }
                 "*" => {
                     let op = BinaryOperator::Multiply;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::BinaryExpression(
+                    Ok(Expression::BinaryExpression(
                         Box::new(lhs),
                         op,
                         Box::new(rhs),
-                    ));
+                    ))
                 }
                 "call" => {
                     let closure = Expression::from_tree(conversion_context, &nodes[1])?;
@@ -504,68 +515,67 @@ impl Expression {
                         let expr = Expression::from_tree(conversion_context, branch)?;
                         arguments.push(expr);
                     }
-                    return Ok(Expression::CallClosure(Box::new(closure), arguments));
+                    Ok(Expression::CallClosure(Box::new(closure), arguments))
                 }
                 "if" => {
                     let condition = Box::new(Expression::from_tree(conversion_context, &nodes[1])?);
                     let main_body = Box::new(Expression::from_tree(conversion_context, &nodes[2])?);
                     let else_body = Box::new(Expression::from_tree(conversion_context, &nodes[3])?);
 
-                    return Ok(Expression::If {
+                    Ok(Expression::If {
                         condition,
                         main_body,
                         else_body,
-                    });
+                    })
                 }
                 "==" => {
                     let op = ComparisonOperator::EqualTo;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
+                    Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)))
                 }
                 "<" => {
                     let op = ComparisonOperator::LessThan;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
+                    Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)))
                 }
                 "<=" => {
                     let op = ComparisonOperator::LessThanEqualTo;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
+                    Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)))
                 }
                 ">" => {
                     let op = ComparisonOperator::GreaterThan;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
+                    Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)))
                 }
                 ">=" => {
                     let op = ComparisonOperator::GreaterThanEqualTo;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
+                    Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)))
                 }
                 "!=" => {
                     let op = ComparisonOperator::NotEqualTo;
                     let lhs = Expression::from_tree(conversion_context, &nodes[1])?;
                     let rhs = Expression::from_tree(conversion_context, &nodes[2])?;
 
-                    return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
+                    Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)))
                 }
                 "new" => {
                     let (first_node, rest) = nodes[1..].split_first().unwrap();
                     let struct_type_name = first_node.as_atom().unwrap();
                     let struct_type = conversion_context
                         .structs
-                        .get(&struct_type_name)
-                        .unwrap()
+                        [&struct_type_name]
                         .clone();
 
                     let mut member_expressions = HashMap::new();
@@ -576,23 +586,24 @@ impl Expression {
 
                         member_expressions.insert(name.clone(), expr);
                     }
-                    return Ok(Expression::CreateStruct(struct_type, member_expressions));
+
+                    Ok(Expression::CreateStruct(struct_type, member_expressions))
                 }
                 "get_member" => {
                     let struct_expression = Expression::from_tree(conversion_context, &nodes[1])?;
                     let member_name = nodes[2].as_atom().unwrap();
 
-                    return Ok(Expression::GetMember(
+                    Ok(Expression::GetMember(
                         Box::new(struct_expression),
                         member_name,
-                    ));
+                    ))
                 }
                 string => Err(TreeConvertError::NotExpected(string.to_owned())),
             },
             Tree::String(ref string) => {
-                return Ok(Expression::CreateConstantValue(ConstantValue::String(
+                Ok(Expression::CreateConstantValue(ConstantValue::String(
                     string.clone(),
-                )));
+                )))
             }
         }
     }
@@ -729,9 +740,9 @@ impl Expression {
 
                 Arc::new(RuntimeValue::StructValue(StructValue { members }))
             }
-            Expression::GetVariable(ref name) => state.variables.get(name).unwrap().clone(),
+            Expression::GetVariable(ref name) => state.variables[name].clone(),
             Expression::GetFunction(ref name) => Arc::new(RuntimeValue::ClosureValue(
-                state.scope.functions.get(name).unwrap().clone(),
+                state.scope.functions[name].clone(),
             )),
             Expression::CallClosure(ref closure_expr, ref argument_expressions) => {
                 let closure_value = closure_expr.execute(state);
@@ -742,13 +753,13 @@ impl Expression {
                     arguments.push(argument_expr.execute(state));
                 }
 
-                closure_value.execute(state.scope, arguments)
+                closure_value.execute(state.scope, &arguments)
             }
             Expression::GetMember(ref struct_expr, ref member_name) => {
                 let struc = struct_expr.execute(state);
                 let struct_value = struc.as_struct_value().unwrap();
 
-                struct_value.members.get(member_name).unwrap().clone()
+                struct_value.members[member_name].clone()
             }
             Expression::Compare(ref lhs, ref op, ref rhs) => {
                 let lhs_value = lhs.execute(state);
@@ -824,7 +835,7 @@ impl Statement {
 
     pub fn get_type(&self, conversion_context: &ConversionContext) -> Result<(), TypeCheckError> {
         match *self {
-            Statement::DefineStruct { name: _, ty: _ } => Ok(()),
+            Statement::DefineStruct { .. } => Ok(()),
             Statement::DefineFunction {
                 ref name,
                 ref ty,
@@ -858,7 +869,7 @@ impl Statement {
     ) -> Result<Statement, TreeConvertError> {
         match *tree {
             Tree::Branch { ref nodes } => {
-                let function_node = nodes.get(0).unwrap();
+                let function_node = &nodes[0];
                 match function_node {
                     Tree::Atom(ref atom_string) => match atom_string.as_ref() {
                         "def_struct" => {
@@ -869,19 +880,19 @@ impl Statement {
                             for node in rest {
                                 match *node {
                                     Tree::Branch { ref nodes } => {
-                                        let name = match nodes.get(0).unwrap() {
+                                        let name = match nodes[0] {
                                             Tree::Atom(ref string) => Ok(string),
-                                            Tree::Branch { ref nodes } => {
+                                            Tree::Branch { .. } => {
                                                 Err(TreeConvertError::ExpectedAtom)
                                             }
-                                            Tree::String(ref string) => {
+                                            Tree::String(ref _string) => {
                                                 Err(TreeConvertError::ExpectedAtom)
                                             }
                                         }?;
 
                                         let ty = Type::from_tree(
                                             Some(conversion_context),
-                                            nodes.get(1).unwrap(),
+                                            &nodes[1]
                                         )?;
 
                                         fields.insert(name.clone(), ty);
@@ -898,16 +909,14 @@ impl Statement {
                             })
                         }
                         "def_function" => {
-                            let name = nodes
-                                .get(1)
-                                .unwrap()
+                            let name = nodes[1]
                                 .as_atom()
                                 .ok_or(TreeConvertError::ExpectedAtom)?;
 
                             let mut conversion_context = conversion_context.clone();
                             let ty = ClosureType::from_tree(
                                 Some(&conversion_context),
-                                nodes.get(2).unwrap(),
+                                &nodes[2],
                             )?;
                             conversion_context
                                 .functions
@@ -920,7 +929,7 @@ impl Statement {
                             }
 
                             let body =
-                                Expression::from_tree(&conversion_context, nodes.get(3).unwrap())?;
+                                Expression::from_tree(&conversion_context, &nodes[3])?;
 
                             Ok(Statement::DefineFunction { name, ty, body })
                         }
@@ -1046,7 +1055,7 @@ impl ClosureValue {
     pub fn execute(
         &self,
         parent_scope: &Scope,
-        arguments: Vec<Arc<RuntimeValue>>,
+        arguments: &[Arc<RuntimeValue>],
     ) -> Arc<RuntimeValue> {
         assert!(arguments.len() == self.ty.arguments.len());
 
@@ -1125,7 +1134,7 @@ impl<'a> State<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Scope<'a> {
     parent: Option<&'a Scope<'a>>,
 
@@ -1150,7 +1159,7 @@ impl<'a> Scope<'a> {
         }
     }
 
-    pub fn run_function(&self, name: &str, arguments: Vec<Arc<RuntimeValue>>) -> Arc<RuntimeValue> {
-        self.functions.get(name).unwrap().execute(self, arguments)
+    pub fn run_function(&self, name: &str, arguments: &[Arc<RuntimeValue>]) -> Arc<RuntimeValue> {
+        self.functions[name].execute(self, arguments)
     }
 }
