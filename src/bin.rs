@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 // type syntax is:
 //     BASIC TYPE:
-//          u16, u32, u64, f32, f64, i16, i32, i64, string, void
+//          u16, u32, u64, f32, f64, i16, i32, i64, string, void, bool
 //     STRUCT TYPE:
 //          ((name TYPE)..) or the name of an already defined type
 //     CLOSURE TYPE:
@@ -93,6 +93,7 @@ impl StructType {
                             let name = match nodes.get(0).unwrap() {
                                 Tree::Atom(ref string) => Ok(string),
                                 Tree::Branch { ref nodes } => Err(TreeConvertError::ExpectedAtom),
+                                Tree::String(ref string) => Err(TreeConvertError::ExpectedAtom),
                             }?;
 
                             let ty = Type::from_tree(convert_context, nodes.get(1).unwrap())?;
@@ -106,6 +107,7 @@ impl StructType {
                 Ok(StructType { fields })
             }
             Tree::Atom(ref string) => Err(TreeConvertError::ExpectedBranch),
+            Tree::String(ref string) => Err(TreeConvertError::ExpectedBranch),
         }
     }
 }
@@ -113,6 +115,7 @@ impl StructType {
 #[derive(Debug)]
 pub enum TreeConvertError {
     NoSuchType(Tree),
+    NotExpected(String),
     ExpectedBranch,
     ExpectedStructOrFunction,
     ExpectedAtom,
@@ -159,6 +162,7 @@ impl BasicType {
 
                 _ => Err(TreeConvertError::NoSuchType(tree.clone())),
             },
+            Tree::String(ref string) => Err(TreeConvertError::NotExpected(string.clone())),
         }
     }
 }
@@ -176,8 +180,10 @@ impl Type {
         tree: &Tree,
     ) -> Result<Type, TreeConvertError> {
         match *tree {
-            Tree::Branch { nodes: _ } => Ok(Type::Struct(StructType::from_tree(convert_context, tree)?)),
-            Tree::Atom(ref string) => { 
+            Tree::Branch { nodes: _ } => {
+                Ok(Type::Struct(StructType::from_tree(convert_context, tree)?))
+            }
+            Tree::Atom(ref string) => {
                 if let Some(convert_context) = convert_context {
                     if let Some(struct_type) = convert_context.structs.get(string) {
                         return Ok(Type::Struct(struct_type.clone()));
@@ -185,6 +191,7 @@ impl Type {
                 }
                 Ok(Type::Basic(BasicType::from_tree(tree)?))
             }
+            Tree::String(ref string) => Err(TreeConvertError::NotExpected(string.clone())),
         }
     }
 }
@@ -476,8 +483,7 @@ impl Expression {
                     return Ok(Expression::GetFunction(string.clone()));
                 }
 
-                println!("{}", string);
-                panic!()
+                Err(TreeConvertError::NotExpected(string.clone()))
             }
             Tree::Branch { ref nodes } => match nodes[0].as_atom().unwrap().as_ref() {
                 "+" => {
@@ -605,8 +611,19 @@ impl Expression {
                     }
                     return Ok(Expression::CreateStruct(struct_type, member_expressions));
                 }
-                _ => panic!(),
+                "get_member" => {
+                    let member_name = nodes[1].as_atom().unwrap();
+                    let struct_expression = Expression::from_tree(conversion_context, &nodes[2])?;
+
+                    return Ok(Expression::GetMember(Box::new(struct_expression), member_name));
+                }
+                string => Err(TreeConvertError::NotExpected(string.to_owned())),
             },
+            Tree::String(ref string) => {
+                return Ok(Expression::CreateConstantValue(ConstantValue::String(
+                    string.clone(),
+                )));
+            }
         }
     }
 
@@ -757,7 +774,12 @@ impl Expression {
 
                 closure_value.execute(state.scope, arguments)
             }
-            Expression::GetMember(ref struct_expr, ref member_name) => unimplemented!(),
+            Expression::GetMember(ref struct_expr, ref member_name) => {
+                let struc = struct_expr.execute(state);
+                let struct_value = struc.as_struct_value().unwrap();
+
+                struct_value.members.get(member_name).unwrap().clone()
+            },
             Expression::Compare(ref lhs, ref op, ref rhs) => {
                 let lhs_value = lhs.execute(state);
                 let lhs_value = lhs_value.as_basic_value().unwrap();
@@ -916,6 +938,7 @@ impl Statement {
                     _ => Err(TreeConvertError::ExpectedAtom),
                 }
             }
+            Tree::String(ref _node) => Err(TreeConvertError::ExpectedBranch),
             Tree::Atom(ref _node) => Err(TreeConvertError::ExpectedBranch),
         }
     }
@@ -1073,6 +1096,13 @@ impl RuntimeValue {
     pub fn as_closure_value(&self) -> Option<&ClosureValue> {
         match *self {
             RuntimeValue::ClosureValue(ref closure) => Some(closure),
+            _ => None,
+        }
+    }
+
+    pub fn as_struct_value(&self) -> Option<&StructValue> {
+        match *self {
+            RuntimeValue::StructValue(ref struc) => Some(struc),
             _ => None,
         }
     }

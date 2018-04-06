@@ -2,6 +2,7 @@
 pub enum Tree {
     Branch { nodes: Vec<Tree> },
     Atom(String),
+    String(String),
 }
 
 impl Tree {
@@ -36,6 +37,7 @@ impl Tree {
                 string.push_str(")");
                 string
             }
+            Tree::String(ref string) => format!(r#""{}""#, string),
         }
     }
 
@@ -71,6 +73,7 @@ impl Tree {
                 string.push_str(")");
                 string
             }
+            Tree::String(ref string) => format!(r#""{}""#, string),
         }
     }
 }
@@ -120,6 +123,9 @@ impl Tree {
                 Token::Atom(ref atom_string) => {
                     nodes.push(Tree::Atom(atom_string.clone()));
                 }
+                Token::String(ref string) => {
+                    nodes.push(Tree::String(string.clone()))
+                }
             }
             position += 1;
         }
@@ -141,6 +147,7 @@ pub enum Token {
     LeftParenthesis,
     RightParenthesis,
     Atom(String),
+    String(String),
 }
 
 pub fn tokenize(source: &str) -> Vec<Token> {
@@ -151,6 +158,28 @@ pub fn tokenize(source: &str) -> Vec<Token> {
         match char {
             ')' => tokens.push(Token::LeftParenthesis),
             '(' => tokens.push(Token::RightParenthesis),
+            '"' => {
+                let mut string = String::new();
+                let mut string_position = position;
+
+                'string_loop: loop {
+                    string_position += 1;
+                    match source.chars().nth(string_position) {
+                        Some(char) => match char {
+                            '"' => {
+                                position = string_position;
+                                break 'string_loop;
+                            }
+                            c => string.push(c),
+                        },
+                        None => {
+                            position = string_position;
+                            break 'string_loop;
+                        }
+                    }
+                }
+                tokens.push(Token::String(string))
+            }
             ' ' | '\n' => {}
             c => {
                 let mut atom = String::new();
