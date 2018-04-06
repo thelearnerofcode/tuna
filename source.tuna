@@ -1,6 +1,9 @@
-((def_struct Person ((id u64) (name string)))
-(def_function main (Person)
-   (new Person ((id 0u64) (name "Owen"))))
-(def_function get_id
-   ((person Person) u64)
-   (get_member id person)))
+((def_struct Person (id u64) (name string) (age u16))
+(def_function create_person (Person)
+   (new Person (id 0u64) (name "Owen") (age 15u16)))
+(def_function age_person
+   ((person Person) Person)
+   (new Person
+      (id (get_member person id))
+      (name (get_member person name))
+      (age (+ (get_member person age) 1u16)))))

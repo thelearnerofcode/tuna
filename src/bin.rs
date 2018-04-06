@@ -41,8 +41,10 @@ fn main() {
         statement.execute(&mut scope);
     }
 
-    let function_result = scope.run_function("main", vec![]);
-    println!("function result: {:?}", function_result);
+    let person = scope.run_function("create_person", vec![]);
+    println!("person: {:?}", person);
+    let old_person = scope.run_function("age_person", vec![person]);
+    println!("old_person: {:?}", old_person);
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -78,40 +80,6 @@ impl ClosureType {
 pub struct StructType {
     fields: HashMap<String, Type>,
 }
-
-impl StructType {
-    pub fn from_tree(
-        convert_context: Option<&ConversionContext>,
-        tree: &Tree,
-    ) -> Result<StructType, TreeConvertError> {
-        match *tree {
-            Tree::Branch { ref nodes } => {
-                let mut fields = HashMap::new();
-                for node in nodes {
-                    match *node {
-                        Tree::Branch { ref nodes } => {
-                            let name = match nodes.get(0).unwrap() {
-                                Tree::Atom(ref string) => Ok(string),
-                                Tree::Branch { ref nodes } => Err(TreeConvertError::ExpectedAtom),
-                                Tree::String(ref string) => Err(TreeConvertError::ExpectedAtom),
-                            }?;
-
-                            let ty = Type::from_tree(convert_context, nodes.get(1).unwrap())?;
-
-                            fields.insert(name.clone(), ty);
-                        }
-                        _ => return Err(TreeConvertError::ExpectedBranch),
-                    }
-                }
-
-                Ok(StructType { fields })
-            }
-            Tree::Atom(ref string) => Err(TreeConvertError::ExpectedBranch),
-            Tree::String(ref string) => Err(TreeConvertError::ExpectedBranch),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum TreeConvertError {
     NoSuchType(Tree),
@@ -180,9 +148,7 @@ impl Type {
         tree: &Tree,
     ) -> Result<Type, TreeConvertError> {
         match *tree {
-            Tree::Branch { nodes: _ } => {
-                Ok(Type::Struct(StructType::from_tree(convert_context, tree)?))
-            }
+            Tree::Branch { nodes: _ } => Err(TreeConvertError::ExpectedAtom),
             Tree::Atom(ref string) => {
                 if let Some(convert_context) = convert_context {
                     if let Some(struct_type) = convert_context.structs.get(string) {
@@ -594,7 +560,8 @@ impl Expression {
                     return Ok(Expression::Compare(Box::new(lhs), op, Box::new(rhs)));
                 }
                 "new" => {
-                    let struct_type_name = nodes[1].as_atom().unwrap();
+                    let (first_node, rest) = nodes[1..].split_first().unwrap();
+                    let struct_type_name = first_node.as_atom().unwrap();
                     let struct_type = conversion_context
                         .structs
                         .get(&struct_type_name)
@@ -602,8 +569,8 @@ impl Expression {
                         .clone();
 
                     let mut member_expressions = HashMap::new();
-                    for branch in nodes[2].get_branches().unwrap() {
-                        let branch = branch.get_branches().unwrap();
+                    for node in rest {
+                        let branch = node.get_branches().unwrap();
                         let name = &branch[0].as_atom().unwrap();
                         let expr = Expression::from_tree(conversion_context, &branch[1])?;
 
@@ -612,10 +579,13 @@ impl Expression {
                     return Ok(Expression::CreateStruct(struct_type, member_expressions));
                 }
                 "get_member" => {
-                    let member_name = nodes[1].as_atom().unwrap();
-                    let struct_expression = Expression::from_tree(conversion_context, &nodes[2])?;
+                    let struct_expression = Expression::from_tree(conversion_context, &nodes[1])?;
+                    let member_name = nodes[2].as_atom().unwrap();
 
-                    return Ok(Expression::GetMember(Box::new(struct_expression), member_name));
+                    return Ok(Expression::GetMember(
+                        Box::new(struct_expression),
+                        member_name,
+                    ));
                 }
                 string => Err(TreeConvertError::NotExpected(string.to_owned())),
             },
@@ -779,7 +749,7 @@ impl Expression {
                 let struct_value = struc.as_struct_value().unwrap();
 
                 struct_value.members.get(member_name).unwrap().clone()
-            },
+            }
             Expression::Compare(ref lhs, ref op, ref rhs) => {
                 let lhs_value = lhs.execute(state);
                 let lhs_value = lhs_value.as_basic_value().unwrap();
@@ -892,15 +862,36 @@ impl Statement {
                 match function_node {
                     Tree::Atom(ref atom_string) => match atom_string.as_ref() {
                         "def_struct" => {
-                            let name = nodes
-                                .get(1)
-                                .unwrap()
-                                .as_atom()
-                                .ok_or(TreeConvertError::ExpectedAtom)?;
-                            let ty = StructType::from_tree(
-                                Some(conversion_context),
-                                nodes.get(2).unwrap(),
-                            )?;
+                            let (first_node, rest) = nodes[1..].split_first().unwrap();
+                            let name = first_node.as_atom().ok_or(TreeConvertError::ExpectedAtom)?;
+
+                            let mut fields = HashMap::new();
+                            for node in rest {
+                                match *node {
+                                    Tree::Branch { ref nodes } => {
+                                        let name = match nodes.get(0).unwrap() {
+                                            Tree::Atom(ref string) => Ok(string),
+                                            Tree::Branch { ref nodes } => {
+                                                Err(TreeConvertError::ExpectedAtom)
+                                            }
+                                            Tree::String(ref string) => {
+                                                Err(TreeConvertError::ExpectedAtom)
+                                            }
+                                        }?;
+
+                                        let ty = Type::from_tree(
+                                            Some(conversion_context),
+                                            nodes.get(1).unwrap(),
+                                        )?;
+
+                                        fields.insert(name.clone(), ty);
+                                    }
+                                    _ => return Err(TreeConvertError::ExpectedBranch),
+                                }
+                            }
+
+                            let ty = StructType { fields };
+
                             Ok(Statement::DefineStruct {
                                 name: name.clone(),
                                 ty,

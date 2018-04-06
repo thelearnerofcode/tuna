@@ -123,9 +123,7 @@ impl Tree {
                 Token::Atom(ref atom_string) => {
                     nodes.push(Tree::Atom(atom_string.clone()));
                 }
-                Token::String(ref string) => {
-                    nodes.push(Tree::String(string.clone()))
-                }
+                Token::String(ref string) => nodes.push(Tree::String(string.clone())),
             }
             position += 1;
         }
