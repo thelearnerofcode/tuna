@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["chell"]
 
 [dependencies]
+rand = "0.5.0-pre.0"
 
 [[bin]]
 name = "tuna"

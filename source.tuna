@@ -1,6 +1,3 @@
-((def_function factorial ((n f32) f32) 
-    (if (== n 0f32) 
-        1f32
-        (* n (call factorial ((- n 1f32))))))
-        
-(def_function main (void) (call factorial (12f32))))
+((def_struct Person ((id u64)))
+(def_function main (Person)
+   (new Person ((id 0u64)))))

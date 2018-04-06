@@ -47,22 +47,25 @@ impl Tree {
         match *self {
             Tree::Atom(ref string) => string.clone(),
             Tree::Branch { ref nodes } => {
-                let mut string = "".to_owned();
-                if nodes.len() > 2 {
-                    string.push('\n');
-                    for _ in 0..depth {
-                        string.push_str("   ");
+                let mut string = "(".to_owned();
+
+                if let Some((first, nodes)) = nodes.split_first() {
+                    string.push_str(&first.impl_to_string_pretty(depth + 1));
+
+                    for node in nodes {
+                        let node_string = node.impl_to_string_pretty(depth + 1);
+
+                        if (node_string.len() > 20 && nodes.len() > 2) || node_string.len() > 40 {
+                            string.push('\n');
+
+                            for _ in 0..depth {
+                                string.push_str("   ");
+                            }
+                        } else {
+                            string.push(' ')
+                        }
+                        string.push_str(&node_string);
                     }
-                }
-
-                string.push('(');
-                for node in nodes {
-                    string.push_str(&node.impl_to_string_pretty(depth + 1));
-                    string.push(' ')
-                }
-
-                if nodes.len() != 0 {
-                    string.pop();
                 }
 
                 string.push_str(")");
