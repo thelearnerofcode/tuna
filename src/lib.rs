@@ -1,51 +1,9 @@
-mod tokenizer;
+pub mod tokenizer;
 use tokenizer::Tree;
 
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-
-// type syntax is:
-//     BASIC TYPE:
-//          u16, u32, u64, f32, f64, i16, i32, i64, string, void, bool
-//     STRUCT TYPE:
-//          ((name TYPE)..) or the name of an already defined type
-//     CLOSURE TYPE:
-//          ((name result) TYPE)
-
-fn main() {
-    let source = include_str!("../source.tuna");
-
-    let tree = Tree::from_tokens(&::tokenizer::tokenize(source));
-    println!("{:#?}", tree);
-    println!("{}", tree.to_string_pretty());
-
-    let mut scope = Scope::new();
-    for block in tree.get_branches().unwrap() {
-        let conversion_context = ConversionContext {
-            variables: HashMap::new(),
-            functions: scope
-                .functions
-                .iter()
-                .map(|(name, closure_value)| (name.clone(), closure_value.ty.clone()))
-                .collect(),
-            structs: scope
-                .struct_types
-                .iter()
-                .map(|(name, struct_type)| (name.clone(), struct_type.clone()))
-                .collect(),
-        };
-
-        let statement = Statement::from_tree(&conversion_context, block).unwrap();
-        statement.get_type(&conversion_context).unwrap();
-        statement.execute(&mut scope);
-    }
-
-    let person = scope.run_function("create_person", &[]);
-    println!("person: {:?}", person);
-    let old_person = scope.run_function("age_person", &[person]);
-    println!("old_person: {:?}", old_person);
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ClosureType {
@@ -54,7 +12,7 @@ pub struct ClosureType {
 }
 
 impl ClosureType {
-    pub fn from_tree(
+    fn from_tree(
         conversion_context: Option<&ConversionContext>,
         tree: &Tree,
     ) -> Result<ClosureType, TreeConvertError> {
@@ -80,6 +38,7 @@ impl ClosureType {
 pub struct StructType {
     fields: HashMap<String, Type>,
 }
+
 #[derive(Debug)]
 pub enum TreeConvertError {
     NoSuchType(Tree),
@@ -143,7 +102,7 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn from_tree(
+    fn from_tree(
         convert_context: Option<&ConversionContext>,
         tree: &Tree,
     ) -> Result<Type, TreeConvertError> {
@@ -224,17 +183,14 @@ pub enum Expression {
 }
 
 #[derive(Clone, Debug)]
-pub struct ConversionContext {
+struct ConversionContext {
     variables: HashMap<String, Type>,
     functions: HashMap<String, ClosureType>,
     structs: HashMap<String, StructType>,
 }
 
 impl Expression {
-    pub fn get_type(
-        &self,
-        conversion_context: &mut ConversionContext,
-    ) -> Result<Type, TypeCheckError> {
+    fn get_type(&self, conversion_context: &mut ConversionContext) -> Result<Type, TypeCheckError> {
         match *self {
             Expression::BinaryExpression(ref lhs, ref _op, ref rhs) => {
                 let lhs_type = lhs.get_type(conversion_context)?;
@@ -377,7 +333,7 @@ impl Expression {
                     ty => {
                         return Err(TypeCheckError::WrongType {
                             expected: Type::Basic(BasicType::Bool),
-                            got: ty
+                            got: ty,
                         });
                     }
                 }
@@ -397,7 +353,7 @@ impl Expression {
         }
     }
 
-    pub fn from_tree(
+    fn from_tree(
         conversion_context: &ConversionContext,
         tree: &Tree,
     ) -> Result<Expression, TreeConvertError> {
@@ -573,10 +529,7 @@ impl Expression {
                 "new" => {
                     let (first_node, rest) = nodes[1..].split_first().unwrap();
                     let struct_type_name = first_node.as_atom().unwrap();
-                    let struct_type = conversion_context
-                        .structs
-                        [&struct_type_name]
-                        .clone();
+                    let struct_type = conversion_context.structs[&struct_type_name].clone();
 
                     let mut member_expressions = HashMap::new();
                     for node in rest {
@@ -600,11 +553,9 @@ impl Expression {
                 }
                 string => Err(TreeConvertError::NotExpected(string.to_owned())),
             },
-            Tree::String(ref string) => {
-                Ok(Expression::CreateConstantValue(ConstantValue::String(
-                    string.clone(),
-                )))
-            }
+            Tree::String(ref string) => Ok(Expression::CreateConstantValue(ConstantValue::String(
+                string.clone(),
+            ))),
         }
     }
 
@@ -833,7 +784,21 @@ impl Statement {
         }
     }
 
-    pub fn get_type(&self, conversion_context: &ConversionContext) -> Result<(), TypeCheckError> {
+    pub fn check_type(&self, scope: &Scope) -> Result<(), TypeCheckError> {
+        let conversion_context = ConversionContext {
+            variables: HashMap::new(),
+            functions: scope
+                .functions
+                .iter()
+                .map(|(name, closure_value)| (name.clone(), closure_value.ty.clone()))
+                .collect(),
+            structs: scope
+                .struct_types
+                .iter()
+                .map(|(name, struct_type)| (name.clone(), struct_type.clone()))
+                .collect(),
+        };
+
         match *self {
             Statement::DefineStruct { .. } => Ok(()),
             Statement::DefineFunction {
@@ -863,10 +828,21 @@ impl Statement {
         }
     }
 
-    pub fn from_tree(
-        conversion_context: &ConversionContext,
-        tree: &Tree,
-    ) -> Result<Statement, TreeConvertError> {
+    pub fn from_tree(scope: &Scope, tree: &Tree) -> Result<Statement, TreeConvertError> {
+        let conversion_context = ConversionContext {
+            variables: HashMap::new(),
+            functions: scope
+                .functions
+                .iter()
+                .map(|(name, closure_value)| (name.clone(), closure_value.ty.clone()))
+                .collect(),
+            structs: scope
+                .struct_types
+                .iter()
+                .map(|(name, struct_type)| (name.clone(), struct_type.clone()))
+                .collect(),
+        };
+
         match *tree {
             Tree::Branch { ref nodes } => {
                 let function_node = &nodes[0];
@@ -890,10 +866,8 @@ impl Statement {
                                             }
                                         }?;
 
-                                        let ty = Type::from_tree(
-                                            Some(conversion_context),
-                                            &nodes[1]
-                                        )?;
+                                        let ty =
+                                            Type::from_tree(Some(&conversion_context), &nodes[1])?;
 
                                         fields.insert(name.clone(), ty);
                                     }
@@ -909,15 +883,10 @@ impl Statement {
                             })
                         }
                         "def_function" => {
-                            let name = nodes[1]
-                                .as_atom()
-                                .ok_or(TreeConvertError::ExpectedAtom)?;
+                            let name = nodes[1].as_atom().ok_or(TreeConvertError::ExpectedAtom)?;
 
                             let mut conversion_context = conversion_context.clone();
-                            let ty = ClosureType::from_tree(
-                                Some(&conversion_context),
-                                &nodes[2],
-                            )?;
+                            let ty = ClosureType::from_tree(Some(&conversion_context), &nodes[2])?;
                             conversion_context
                                 .functions
                                 .insert(name.clone(), ty.clone());
@@ -928,8 +897,7 @@ impl Statement {
                                     .insert(argument_name.clone(), argument_type.clone());
                             }
 
-                            let body =
-                                Expression::from_tree(&conversion_context, &nodes[3])?;
+                            let body = Expression::from_tree(&conversion_context, &nodes[3])?;
 
                             Ok(Statement::DefineFunction { name, ty, body })
                         }
