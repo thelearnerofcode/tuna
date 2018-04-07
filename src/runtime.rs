@@ -92,6 +92,16 @@ pub struct ClosureValue {
     pub(crate) body: Expression,
 }
 
+impl ClosureValue {
+    pub fn ty(&self) -> &ClosureType {
+        &self.ty
+    }
+
+    pub fn body(&self) -> &Expression {
+        &self.body
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StructValue {
     pub members: HashMap<String, Arc<RuntimeValue>>,
@@ -307,7 +317,7 @@ impl Interpreter {
             }
             Expression::GetVariable(ref name) => state.get_variable(name).unwrap().clone(),
             Expression::GetFunction(ref name) => Arc::new(RuntimeValue::ClosureValue(
-                self.scope.functions[name].clone(),
+                self.scope.functions().get(name).unwrap().clone(),
             )),
             Expression::CallClosure(ref closure_expr, ref argument_expressions) => {
                 let closure_value = self.execute(closure_expr, state);
@@ -371,7 +381,7 @@ impl Interpreter {
 
 impl Runtime for Interpreter {
     fn run_function(&self, name: &str, arguments: &[Arc<RuntimeValue>]) -> Arc<RuntimeValue> {
-        let closure_value = &self.scope.functions[name];
+        let closure_value = &self.scope.functions().get(name).unwrap();
         run_closure(self, closure_value, arguments)
     }
 }
@@ -382,11 +392,12 @@ fn run_closure(
     arguments: &[Arc<RuntimeValue>],
 ) -> Arc<RuntimeValue> {
     // todo: check argument types.
-    assert!(arguments.len() == closure.ty.arguments.len());
+    assert!(arguments.len() == closure.ty.required_arguments().len());
     let mut state = State::new();
 
     // load arguments into state
-    for ((argument_name, _), provided_argument) in closure.ty.arguments.iter().zip(arguments.iter())
+    for ((argument_name, _), provided_argument) in
+        closure.ty.required_arguments().iter().zip(arguments.iter())
     {
         state
             .variables

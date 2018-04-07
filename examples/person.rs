@@ -1,6 +1,6 @@
 extern crate tuna;
 
-use tuna::{ir::{Scope, Statement}, runtime::Runtime, tokenizer::{tokenize, Tree}};
+use tuna::{ir::{Scope, Statement}, runtime::{Interpreter, Runtime}, tokenizer::{tokenize, Tree}};
 
 fn main() {
     let source = include_str!("person.tuna");
@@ -12,9 +12,9 @@ fn main() {
         scope.load_statement(&statement).unwrap();
     }
 
-    let runtime = Runtime::new(scope);
-    let person = runtime.run_function("create_person", &[]);
-    let old_person = runtime.run_function("age_person", &[person.clone()]);
+    let interpreter = Interpreter::new(scope);
+    let person = interpreter.run_function("create_person", &[]);
+    let old_person = interpreter.run_function("age_person", &[person.clone()]);
 
     println!("person: {:#?}", person);
     println!("old_person: {:#?}", old_person);

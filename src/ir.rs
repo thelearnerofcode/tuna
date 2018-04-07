@@ -6,11 +6,19 @@ use tokenizer::Tree;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ClosureType {
-    pub(crate) arguments: Vec<(String, Type)>,
+    arguments: Vec<(String, Type)>,
     result: Box<Type>,
 }
 
 impl ClosureType {
+    pub fn required_arguments(&self) -> &[(String, Type)] {
+        &self.arguments
+    }
+
+    pub fn result(&self) -> &Type {
+        &self.result
+    }
+
     fn from_tree(
         conversion_context: Option<&ConversionContext>,
         tree: &Tree,
@@ -580,7 +588,7 @@ impl Statement {
             functions: scope
                 .functions
                 .iter()
-                .map(|(name, closure_value)| (name.clone(), closure_value.ty.clone()))
+                .map(|(name, closure_value)| (name.clone(), closure_value.ty().clone()))
                 .collect(),
             structs: scope
                 .struct_types
@@ -624,7 +632,7 @@ impl Statement {
             functions: scope
                 .functions
                 .iter()
-                .map(|(name, closure_value)| (name.clone(), closure_value.ty.clone()))
+                .map(|(name, closure_value)| (name.clone(), closure_value.ty().clone()))
                 .collect(),
             structs: scope
                 .struct_types
@@ -722,8 +730,8 @@ pub enum BinaryOperator {
 
 #[derive(Debug, Default, Clone)]
 pub struct Scope {
-    pub(crate) functions: HashMap<String, ClosureValue>,
-    pub(crate) struct_types: HashMap<String, StructType>,
+    functions: HashMap<String, ClosureValue>,
+    struct_types: HashMap<String, StructType>,
 }
 
 impl Scope {
@@ -732,6 +740,14 @@ impl Scope {
             functions: HashMap::new(),
             struct_types: HashMap::new(),
         }
+    }
+
+    pub fn functions(&self) -> &HashMap<String, ClosureValue> {
+        &self.functions
+    }
+
+    pub fn struct_types(&self) -> &HashMap<String, StructType> {
+        &self.struct_types
     }
 
     pub fn get_struct_type(&self, name: &str) -> Option<&StructType> {
