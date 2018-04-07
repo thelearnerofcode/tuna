@@ -1,6 +1,7 @@
 extern crate tuna;
 
-use tuna::{ir::{Scope, Statement}, runtime::{Interpreter, Runtime}, tokenizer::{tokenize, Tree}};
+use tuna::{ir::{Scope, Statement}, parser::{tokenize, Tree},
+           runtime::{Runtime, interpreter::Interpreter}};
 
 fn main() {
     let source = include_str!("person.tuna");

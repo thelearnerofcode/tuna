@@ -1,7 +1,7 @@
 extern crate tuna;
 
-use tuna::{ir::{Scope, Statement}, runtime::{BasicValue, Interpreter, Runtime, RuntimeValue},
-           tokenizer::{tokenize, Tree}};
+use tuna::{ir::{Scope, Statement}, parser::{tokenize, Tree},
+           runtime::{BasicValue, Runtime, RuntimeValue, interpreter::Interpreter}};
 
 use std::sync::Arc;
 

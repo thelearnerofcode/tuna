@@ -1,159 +1,26 @@
-use ir::{BinaryOperator, ClosureType, ComparisonOperator, ConstantValue, Expression, Scope};
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
-pub enum BasicValue {
-    U16(u16),
-    U32(u32),
-    U64(u64),
-
-    F32(f32),
-    F64(f64),
-
-    I16(i16),
-    I32(i32),
-    I64(i64),
-
-    String(String),
-    Bool(bool),
-    Void,
-}
-
-impl BasicValue {
-    pub fn as_u16(&self) -> Option<u16> {
-        match *self {
-            BasicValue::U16(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_u32(&self) -> Option<u32> {
-        match *self {
-            BasicValue::U32(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_u64(&self) -> Option<u64> {
-        match *self {
-            BasicValue::U64(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_f32(&self) -> Option<f32> {
-        match *self {
-            BasicValue::F32(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_f64(&self) -> Option<f64> {
-        match *self {
-            BasicValue::F64(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_i16(&self) -> Option<i16> {
-        match *self {
-            BasicValue::I16(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_i32(&self) -> Option<i32> {
-        match *self {
-            BasicValue::I32(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_i64(&self) -> Option<i64> {
-        match *self {
-            BasicValue::I64(ref v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    pub fn as_string(&self) -> Option<&String> {
-        match *self {
-            BasicValue::String(ref string) => Some(string),
-            _ => None,
-        }
-    }
-}
+use ir::{BinaryOperator, Closure, ComparisonOperator, ConstantValue, Expression, Scope};
+use runtime::{BasicValue, Runtime, RuntimeValue, StructValue};
 
 #[derive(Debug, Clone)]
-pub struct ClosureValue {
-    pub(crate) ty: ClosureType,
-    pub(crate) body: Expression,
-}
-
-impl ClosureValue {
-    pub fn ty(&self) -> &ClosureType {
-        &self.ty
-    }
-
-    pub fn body(&self) -> &Expression {
-        &self.body
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct StructValue {
-    pub members: HashMap<String, Arc<RuntimeValue>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum RuntimeValue {
-    BasicValue(BasicValue),
-    ClosureValue(ClosureValue),
-    StructValue(StructValue),
-}
-
-impl RuntimeValue {
-    pub fn as_basic_value(&self) -> Option<&BasicValue> {
-        match *self {
-            RuntimeValue::BasicValue(ref basic) => Some(basic),
-            _ => None,
-        }
-    }
-
-    pub fn as_closure_value(&self) -> Option<&ClosureValue> {
-        match *self {
-            RuntimeValue::ClosureValue(ref closure) => Some(closure),
-            _ => None,
-        }
-    }
-
-    pub fn as_struct_value(&self) -> Option<&StructValue> {
-        match *self {
-            RuntimeValue::StructValue(ref struc) => Some(struc),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct State<'a> {
-    parent: Option<&'a State<'a>>,
+struct LocalInterpreterState<'a> {
+    parent: Option<&'a LocalInterpreterState<'a>>,
     variables: HashMap<String, Arc<RuntimeValue>>,
 }
 
-impl<'a> State<'a> {
-    pub fn new() -> State<'a> {
-        State::new_impl(None)
+impl<'a> LocalInterpreterState<'a> {
+    pub fn new() -> LocalInterpreterState<'a> {
+        LocalInterpreterState::new_impl(None)
     }
 
-    pub fn with_parent(parent: &'a State<'a>) -> State<'a> {
-        State::new_impl(Some(parent))
+    pub fn with_parent(parent: &'a LocalInterpreterState<'a>) -> LocalInterpreterState<'a> {
+        LocalInterpreterState::new_impl(Some(parent))
     }
 
-    pub fn new_impl(parent: Option<&'a State<'a>>) -> State<'a> {
-        State {
+    pub fn new_impl(parent: Option<&'a LocalInterpreterState<'a>>) -> LocalInterpreterState<'a> {
+        LocalInterpreterState {
             parent,
             variables: HashMap::new(),
         }
@@ -170,10 +37,6 @@ impl<'a> State<'a> {
     }
 }
 
-pub trait Runtime {
-    fn run_function(&self, name: &str, arguments: &[Arc<RuntimeValue>]) -> Arc<RuntimeValue>;
-}
-
 pub struct Interpreter {
     scope: Scope,
 }
@@ -183,12 +46,16 @@ impl Interpreter {
         Interpreter { scope }
     }
 
-    fn execute(&self, expression: &Expression, state: &mut State) -> Arc<RuntimeValue> {
+    fn execute(
+        &self,
+        expression: &Expression,
+        local_interpreter_state: &mut LocalInterpreterState,
+    ) -> Arc<RuntimeValue> {
         match *expression {
             Expression::BinaryExpression(ref lhs, ref op, ref rhs) => {
-                let lhs_value = self.execute(lhs, state);
+                let lhs_value = self.execute(lhs, local_interpreter_state);
                 let lhs_value = lhs_value.as_basic_value().unwrap();
-                let rhs_value = self.execute(rhs, state);
+                let rhs_value = self.execute(rhs, local_interpreter_state);
                 let rhs_value = rhs_value.as_basic_value().unwrap();
 
                 match *lhs_value {
@@ -310,36 +177,38 @@ impl Interpreter {
             Expression::CreateStruct(ref _ty, ref member_expressions) => {
                 let mut members = HashMap::new();
                 for (name, expr) in member_expressions {
-                    members.insert(name.clone(), self.execute(expr, state));
+                    members.insert(name.clone(), self.execute(expr, local_interpreter_state));
                 }
 
                 Arc::new(RuntimeValue::StructValue(StructValue { members }))
             }
-            Expression::GetVariable(ref name) => state.get_variable(name).unwrap().clone(),
-            Expression::GetFunction(ref name) => Arc::new(RuntimeValue::ClosureValue(
+            Expression::GetVariable(ref name) => {
+                local_interpreter_state.get_variable(name).unwrap().clone()
+            }
+            Expression::GetFunction(ref name) => Arc::new(RuntimeValue::Closure(
                 self.scope.functions().get(name).unwrap().clone(),
             )),
             Expression::CallClosure(ref closure_expr, ref argument_expressions) => {
-                let closure_value = self.execute(closure_expr, state);
+                let closure_value = self.execute(closure_expr, local_interpreter_state);
                 let closure_value = closure_value.as_closure_value().unwrap();
 
                 let mut arguments: Vec<Arc<RuntimeValue>> = vec![];
                 for argument_expr in argument_expressions {
-                    arguments.push(self.execute(argument_expr, state));
+                    arguments.push(self.execute(argument_expr, local_interpreter_state));
                 }
 
                 run_closure(self, closure_value, &arguments)
             }
             Expression::GetMember(ref struct_expr, ref member_name) => {
-                let struc = self.execute(struct_expr, state);
+                let struc = self.execute(struct_expr, local_interpreter_state);
                 let struct_value = struc.as_struct_value().unwrap();
 
                 struct_value.members[member_name].clone()
             }
             Expression::Compare(ref lhs, ref op, ref rhs) => {
-                let lhs_value = self.execute(lhs, state);
+                let lhs_value = self.execute(lhs, local_interpreter_state);
                 let lhs_value = lhs_value.as_basic_value().unwrap();
-                let rhs_value = self.execute(rhs, state);
+                let rhs_value = self.execute(rhs, local_interpreter_state);
                 let rhs_value = rhs_value.as_basic_value().unwrap();
 
                 Arc::new(RuntimeValue::BasicValue(BasicValue::Bool(match *op {
@@ -357,7 +226,8 @@ impl Interpreter {
                 ref else_body,
             } => {
                 let condition_value = {
-                    let mut child_state = State::with_parent(state);
+                    let mut child_state =
+                        LocalInterpreterState::with_parent(local_interpreter_state);
                     self.execute(condition, &mut child_state)
                 };
 
@@ -368,10 +238,12 @@ impl Interpreter {
                 };
 
                 if condition_value {
-                    let mut child_state = State::with_parent(state);
+                    let mut child_state =
+                        LocalInterpreterState::with_parent(local_interpreter_state);
                     self.execute(main_body, &mut child_state)
                 } else {
-                    let mut child_state = State::with_parent(state);
+                    let mut child_state =
+                        LocalInterpreterState::with_parent(local_interpreter_state);
                     self.execute(else_body, &mut child_state)
                 }
             }
@@ -388,21 +260,21 @@ impl Runtime for Interpreter {
 
 fn run_closure(
     interpreter: &Interpreter,
-    closure: &ClosureValue,
+    closure: &Closure,
     arguments: &[Arc<RuntimeValue>],
 ) -> Arc<RuntimeValue> {
     // todo: check argument types.
     assert!(arguments.len() == closure.ty.required_arguments().len());
-    let mut state = State::new();
+    let mut local_interpreter_state = LocalInterpreterState::new();
 
-    // load arguments into state
+    // load arguments into local_interpreter_state
     for ((argument_name, _), provided_argument) in
         closure.ty.required_arguments().iter().zip(arguments.iter())
     {
-        state
+        local_interpreter_state
             .variables
             .insert(argument_name.clone(), provided_argument.clone());
     }
 
-    interpreter.execute(&closure.body, &mut state)
+    interpreter.execute(&closure.body, &mut local_interpreter_state)
 }

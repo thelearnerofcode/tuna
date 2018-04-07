@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use runtime::ClosureValue;
-use tokenizer::Tree;
+use parser::Tree;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ClosureType {
@@ -38,6 +37,22 @@ impl ClosureType {
 
         let result = Box::new(Type::from_tree(conversion_context, return_node)?);
         Ok(ClosureType { arguments, result })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Closure {
+    pub(crate) ty: ClosureType,
+    pub(crate) body: Expression,
+}
+
+impl Closure {
+    pub fn ty(&self) -> &ClosureType {
+        &self.ty
+    }
+
+    pub fn body(&self) -> &Expression {
+        &self.body
     }
 }
 
@@ -730,7 +745,7 @@ pub enum BinaryOperator {
 
 #[derive(Debug, Default, Clone)]
 pub struct Scope {
-    functions: HashMap<String, ClosureValue>,
+    functions: HashMap<String, Closure>,
     struct_types: HashMap<String, StructType>,
 }
 
@@ -742,7 +757,7 @@ impl Scope {
         }
     }
 
-    pub fn functions(&self) -> &HashMap<String, ClosureValue> {
+    pub fn functions(&self) -> &HashMap<String, Closure> {
         &self.functions
     }
 
@@ -765,7 +780,7 @@ impl Scope {
             } => {
                 self.functions.insert(
                     name.clone(),
-                    ClosureValue {
+                    Closure {
                         body: body.clone(),
                         ty: ty.clone(),
                     },
