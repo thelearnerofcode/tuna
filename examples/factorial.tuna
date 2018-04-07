@@ -1,0 +1,3 @@
+((def_function factorial ((n f32) f32)
+   (if (== n 0f32) 1f32
+      (* n (call factorial ((- n 1f32)))))))
