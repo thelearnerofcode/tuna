@@ -1,6 +1,6 @@
 ((def_struct Person (id u64) (name string) (age u16))
 (def_function create_person (Person)
-   (new Person (id 0u64) (name "Owen") (age 15u16)))
+   (new Person (id 0u64) (name "Test Person") (age 42u16)))
 (def_function age_person
    ((person Person) Person)
    (new Person
