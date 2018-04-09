@@ -1,28 +1,37 @@
 extern crate tuna;
 
-use tuna::{ir::{Scope, Statement}, parser::{tokenize, Tree},
-           runtime::{Runtime, interpreter::Interpreter}};
+use tuna::{ir::{Scope, Statement}, parser::{tokenize, Tree}, runtime::llvm::LLVMJit};
 
 fn main() {
     let source = include_str!("person.tuna");
 
     let tree = Tree::from_tokens(&tokenize(source));
+    println!("{}", tree.to_string_pretty());
+
     let mut scope = Scope::new();
     for block in tree.get_branches().unwrap() {
         let statement = Statement::from_tree(&scope, block).unwrap();
         scope.load_statement(&statement).unwrap();
     }
 
-    let interpreter = Interpreter::new(scope);
-    let person = interpreter.run_function("create_person", &[]);
-    let old_person = interpreter.run_function("age_person", &[person.clone()]);
+    let llvmjit = LLVMJit::new(scope);
+    let person: Person = llvmjit.run_function_no_arg("create_person");
+    let old_person: Person = llvmjit.run_function_1_arg("age_person", person);
 
     println!("person: {:#?}", person);
     println!("old_person: {:#?}", old_person);
 }
 
-/* equivalent rust:
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
 struct Person {
+    id: u64,
+    alive: bool,
+    age: u16,
+}
+
+/* equivalent rust:
+struct Person { 
     id: u64,
     name: String,
     age: u16,

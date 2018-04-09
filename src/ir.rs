@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::str::FromStr;
 
 use parser::Tree;
@@ -58,7 +58,13 @@ impl Closure {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct StructType {
-    fields: HashMap<String, Type>,
+    fields: IndexMap<String, Type>,
+}
+
+impl StructType {
+    pub fn fields(&self) -> &IndexMap<String, Type> {
+        &self.fields
+    }
 }
 
 #[derive(Debug)]
@@ -83,7 +89,6 @@ pub enum BasicType {
     I32,
     I64,
 
-    Void,
     Bool,
     String,
 }
@@ -105,7 +110,6 @@ impl BasicType {
                 "i64" => Ok(BasicType::I64),
 
                 "string" => Ok(BasicType::String),
-                "void" => Ok(BasicType::Void),
                 "bool" => Ok(BasicType::Bool),
 
                 _ => Err(TreeConvertError::NoSuchType(tree.clone())),
@@ -140,6 +144,27 @@ impl Type {
             Tree::String(ref string) => Err(TreeConvertError::NotExpected(string.clone())),
         }
     }
+
+    pub fn as_basic(&self) -> Option<&BasicType> {
+        match *self {
+            Type::Basic(ref b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn as_closure(&self) -> Option<&ClosureType> {
+        match *self {
+            Type::Closure(ref c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn as_struct(&self) -> Option<&StructType> {
+        match *self {
+            Type::Struct(ref s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -155,7 +180,6 @@ pub enum ConstantValue {
     I32(i32),
     I64(i64),
 
-    Void,
     String(String),
     Bool(bool),
 }
@@ -186,7 +210,7 @@ pub enum Expression {
     // result type is determined by type of constant value
     CreateConstantValue(ConstantValue),
     // result type is determined by StructType
-    CreateStruct(StructType, HashMap<String, Expression>),
+    CreateStruct(StructType, IndexMap<String, Expression>),
     // result type is the closure type of function at the strNoneing
     GetFunction(String),
     // result type is the value of the variable
@@ -204,14 +228,17 @@ pub enum Expression {
 }
 
 #[derive(Clone, Debug)]
-struct ConversionContext {
-    variables: HashMap<String, Type>,
-    functions: HashMap<String, ClosureType>,
-    structs: HashMap<String, StructType>,
+pub(crate) struct ConversionContext {
+    pub(crate) variables: IndexMap<String, Type>,
+    pub(crate) functions: IndexMap<String, ClosureType>,
+    pub(crate) structs: IndexMap<String, StructType>,
 }
 
 impl Expression {
-    fn get_type(&self, conversion_context: &mut ConversionContext) -> Result<Type, TypeCheckError> {
+    pub(crate) fn get_type(
+        &self,
+        conversion_context: &mut ConversionContext,
+    ) -> Result<Type, TypeCheckError> {
         match *self {
             Expression::BinaryExpression(ref lhs, ref _op, ref rhs) => {
                 let lhs_type = lhs.get_type(conversion_context)?;
@@ -288,7 +315,6 @@ impl Expression {
                     ConstantValue::I32(_) => BasicType::I32,
                     ConstantValue::I64(_) => BasicType::I64,
 
-                    ConstantValue::Void => BasicType::Void,
                     ConstantValue::String(_) => BasicType::String,
                     ConstantValue::Bool(_) => BasicType::Bool,
                 }))
@@ -554,7 +580,7 @@ impl Expression {
                     let struct_type_name = first_node.as_atom().unwrap();
                     let struct_type = conversion_context.structs[&struct_type_name].clone();
 
-                    let mut member_expressions = HashMap::new();
+                    let mut member_expressions = IndexMap::new();
                     for node in rest {
                         let branch = node.get_branches().unwrap();
                         let name = &branch[0].as_atom().unwrap();
@@ -599,7 +625,7 @@ pub enum Statement {
 impl Statement {
     pub fn check_type(&self, scope: &Scope) -> Result<(), TypeCheckError> {
         let conversion_context = ConversionContext {
-            variables: HashMap::new(),
+            variables: IndexMap::new(),
             functions: scope
                 .functions
                 .iter()
@@ -643,7 +669,7 @@ impl Statement {
 
     pub fn from_tree(scope: &Scope, tree: &Tree) -> Result<Statement, TreeConvertError> {
         let conversion_context = ConversionContext {
-            variables: HashMap::new(),
+            variables: IndexMap::new(),
             functions: scope
                 .functions
                 .iter()
@@ -665,7 +691,7 @@ impl Statement {
                             let (first_node, rest) = nodes[1..].split_first().unwrap();
                             let name = first_node.as_atom().ok_or(TreeConvertError::ExpectedAtom)?;
 
-                            let mut fields = HashMap::new();
+                            let mut fields = IndexMap::new();
                             for node in rest {
                                 match *node {
                                     Tree::Branch { ref nodes } => {
@@ -711,7 +737,6 @@ impl Statement {
                             }
 
                             let body = Expression::from_tree(&conversion_context, &nodes[3])?;
-
                             Ok(Statement::DefineFunction { name, ty, body })
                         }
                         _ => Err(TreeConvertError::ExpectedStructOrFunction),
@@ -745,23 +770,23 @@ pub enum BinaryOperator {
 
 #[derive(Debug, Default, Clone)]
 pub struct Scope {
-    functions: HashMap<String, Closure>,
-    struct_types: HashMap<String, StructType>,
+    functions: IndexMap<String, Closure>,
+    struct_types: IndexMap<String, StructType>,
 }
 
 impl Scope {
     pub fn new() -> Scope {
         Scope {
-            functions: HashMap::new(),
-            struct_types: HashMap::new(),
+            functions: IndexMap::new(),
+            struct_types: IndexMap::new(),
         }
     }
 
-    pub fn functions(&self) -> &HashMap<String, Closure> {
+    pub fn functions(&self) -> &IndexMap<String, Closure> {
         &self.functions
     }
 
-    pub fn struct_types(&self) -> &HashMap<String, StructType> {
+    pub fn struct_types(&self) -> &IndexMap<String, StructType> {
         &self.struct_types
     }
 

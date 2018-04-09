@@ -1,27 +1,20 @@
 extern crate tuna;
 
-use tuna::{ir::{Scope, Statement}, parser::{tokenize, Tree},
-           runtime::{BasicValue, Runtime, RuntimeValue, interpreter::Interpreter}};
-
-use std::sync::Arc;
+use tuna::{ir::{Scope, Statement}, parser::{tokenize, Tree}, runtime::llvm::LLVMJit};
 
 fn main() {
     let source = include_str!("factorial.tuna");
 
     let tree = Tree::from_tokens(&tokenize(source));
-
     let mut scope = Scope::new();
-    for block in tree.get_branches().unwrap() {
-        let statement = Statement::from_tree(&scope, block).unwrap();
+    for branch in tree.get_branches().unwrap() {
+        let statement = Statement::from_tree(&scope, branch).unwrap();
         scope.load_statement(&statement).unwrap();
     }
 
-    let interpreter = Interpreter::new(scope);
-    let factorial = interpreter.run_function(
-        "factorial",
-        &[Arc::new(RuntimeValue::BasicValue(BasicValue::F32(4.0)))],
-    );
+    let jit = LLVMJit::new(scope);
+    let factorial: f32 = jit.run_function_1_arg("factorial", 4.0f32);
 
     // should be 24
-    println!("factorial: {:#?}", factorial);
+    println!("factorial: {}", factorial);
 }

@@ -1,6 +1,8 @@
 [package]
 name = "tuna"
 version = "0.1.0"
-authors = ["chell"]
+authors = ["thelearnerofcode"]
 
 [dependencies]
+llvm-sys = "60.0.1"
+indexmap = "1.0.1"

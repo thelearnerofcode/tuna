@@ -1,13 +1,13 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use ir::{BinaryOperator, Closure, ComparisonOperator, ConstantValue, Expression, Scope};
-use runtime::{BasicValue, Runtime, RuntimeValue, StructValue};
+use runtime::{BasicValue, RuntimeValue, StructValue};
 
 #[derive(Debug, Clone)]
 struct LocalInterpreterState<'a> {
     parent: Option<&'a LocalInterpreterState<'a>>,
-    variables: HashMap<String, Arc<RuntimeValue>>,
+    variables: IndexMap<String, Arc<RuntimeValue>>,
 }
 
 impl<'a> LocalInterpreterState<'a> {
@@ -22,7 +22,7 @@ impl<'a> LocalInterpreterState<'a> {
     pub fn new_impl(parent: Option<&'a LocalInterpreterState<'a>>) -> LocalInterpreterState<'a> {
         LocalInterpreterState {
             parent,
-            variables: HashMap::new(),
+            variables: IndexMap::new(),
         }
     }
 
@@ -169,13 +169,12 @@ impl Interpreter {
                     ConstantValue::I32(ref c) => BasicValue::I32(*c),
                     ConstantValue::I64(ref c) => BasicValue::I64(*c),
 
-                    ConstantValue::Void => BasicValue::Void,
                     ConstantValue::String(ref string) => BasicValue::String(string.clone()),
                     ConstantValue::Bool(ref bool) => BasicValue::Bool(*bool),
                 }))
             }
             Expression::CreateStruct(ref _ty, ref member_expressions) => {
-                let mut members = HashMap::new();
+                let mut members = IndexMap::new();
                 for (name, expr) in member_expressions {
                     members.insert(name.clone(), self.execute(expr, local_interpreter_state));
                 }
@@ -249,10 +248,8 @@ impl Interpreter {
             }
         }
     }
-}
 
-impl Runtime for Interpreter {
-    fn run_function(&self, name: &str, arguments: &[Arc<RuntimeValue>]) -> Arc<RuntimeValue> {
+    pub fn run_function(&self, name: &str, arguments: &[Arc<RuntimeValue>]) -> Arc<RuntimeValue> {
         let closure_value = &self.scope.functions().get(name).unwrap();
         run_closure(self, closure_value, arguments)
     }

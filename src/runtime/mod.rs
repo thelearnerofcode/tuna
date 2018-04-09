@@ -1,8 +1,9 @@
 pub mod interpreter;
+pub mod llvm;
 
 use ir::Closure;
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -104,7 +105,7 @@ impl BasicValue {
 
 #[derive(Debug, Clone)]
 pub struct StructValue {
-    pub members: HashMap<String, Arc<RuntimeValue>>,
+    pub members: IndexMap<String, Arc<RuntimeValue>>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,8 +136,4 @@ impl RuntimeValue {
             _ => None,
         }
     }
-}
-
-pub trait Runtime {
-    fn run_function(&self, name: &str, arguments: &[Arc<RuntimeValue>]) -> Arc<RuntimeValue>;
 }
